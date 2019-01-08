@@ -2723,8 +2723,8 @@ def run(test, params, env):
                 remote_virsh_session.destroy(target_vm_name)
                 logging.debug("Recover remote guest xml")
                 remote_virsh_session.define(xml_path)
-            except (process.CmdError, remote.SCPError) as detail:
-                raise exceptions.TestError(detail)
+            except Exception as detail:
+                logging.error(detail)
             finally:
                 remote_virsh_session.close_session()
 
