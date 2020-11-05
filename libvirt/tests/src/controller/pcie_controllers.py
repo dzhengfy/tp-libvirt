@@ -6,6 +6,7 @@ import logging
 from virttest import virsh
 from virttest import data_dir
 
+from virttest.utils_libvirt import libvirt_pcicontr
 from virttest.utils_libvirtd import Libvirtd
 from virttest.utils_test import libvirt
 from virttest.libvirt_xml.vm_xml import VMXML
@@ -13,22 +14,14 @@ from virttest.libvirt_xml.vm_xml import VMXML
 
 def run(test, params, env):
     """
-    Test the PCIe controllers' options
-    1. Backup guest xml before the tests
-    2. Modify guest xml and define the guest
-    3. Start guest
-    4. Hotplug if needed
-    5. Do checking
-    6. Destroy guest and restore guest
+
+    :param test:
+    :param params:
+    :param env:
+    :return:
     """
 
     def get_disk_bus(disk_dev=None):
-        """
-        Get the bus list of guest disks
-
-        :param disk_dev: The specified disk device
-        :return: list for disks' buses
-        """
         disk_bus_list = []
 
         cur_vm_xml = VMXML.new_from_dumpxml(vm_name)
@@ -45,17 +38,11 @@ def run(test, params, env):
 
     def check_guest_disks(ishotplug):
         """
-        Check guest disks in different ways
 
         :param ishotplug: True for hotplug, False for hotunplug
-        :raise: test.fail if some errors happen
+        :return:
         """
         def _find_disk_by_cmd():
-            """
-            Check disk using virsh command
-
-            :return: True if the disk is found, otherwise False
-            """
             ret = virsh.domblklist(vm_name, **virsh_options)
             target_disks = re.findall(r"[v,s]d[a-z]", ret.stdout.strip())
             logging.debug(target_disks)
@@ -68,13 +55,6 @@ def run(test, params, env):
             return False
 
         def _find_disk_in_xml():
-            """
-            Check disk in guest xml
-
-            :return: True if the disk is found with right bus
-                     False if the disk is not found
-            :raise: test.fail if the disk's bus is incorrect
-            """
             bus_list = get_disk_bus(target_dev)
             if len(bus_list) == 0:
                 return False
@@ -106,18 +86,8 @@ def run(test, params, env):
             test.fail(msg4)
 
     def check_inside_guest(ishotplug):
-        """
-        Check devices within the guest
 
-        :param ishotplug: True for hotplug, False for hotunplug
-        :raise: test.fail if the result is not expected
-        """
         def _check_disk_in_guest():
-            """
-            Compare the disk numbers within the guest
-
-            :return: True if new disk is found, otherwise False
-            """
             new_disk_num = len(vm.get_disks())
             if new_disk_num > ori_disk_num:
                 logging.debug("New disk is found in vm")
@@ -138,11 +108,6 @@ def run(test, params, env):
             test.fail(msg2)
 
     def check_guest_contr():
-        """
-        Check the controller in guest xml
-
-        :raise: test.fail if the controller does not meet the expectation
-        """
         cntl = None
         cur_vm_xml = VMXML.new_from_dumpxml(vm_name)
         for cntl in cur_vm_xml.devices.by_device_tag('controller'):
@@ -157,6 +122,8 @@ def run(test, params, env):
                               "but expect {}".format(cntl_hotplug,
                                                      hotplug_option))
                 break
+            else:
+                continue
         if not cntl:
             test.fail("The controller with index {} is not found".format(contr_index))
 
@@ -167,7 +134,6 @@ def run(test, params, env):
     check_cntl_xml = params.get("check_cntl_xml", 'no') == 'yes'
     contr_model = params.get("controller_model", 'pcie-root-port')
     contr_target = params.get("controller_target")
-    contr_index = params.get("contr_index")
     hotplug_option = params.get("hotplug_option")
     hotplug = params.get("hotplug", 'yes') == 'yes'
     define_option = params.get("define_option")
@@ -178,6 +144,7 @@ def run(test, params, env):
     restart_daemon = params.get("restart_daemon", "no") == 'yes'
     save_restore = params.get("save_restore", "no") == 'yes'
     hotplug_counts = params.get("hotplug_counts")
+    contr_index = None
 
     virsh_options = {'debug': True, 'ignore_status': False}
 
@@ -193,17 +160,28 @@ def run(test, params, env):
             logging.debug("The original disk number in vm is %d", ori_disk_num)
             virsh.destroy(vm_name)
 
-        vm_xml_obj.remove_all_device_by_type('controller')
         if setup_controller:
             contr_dict = {'controller_type': 'pci',
                           'controller_model': contr_model,
-                          'controller_index': contr_index,
                           'controller_target': contr_target}
             contr_obj = libvirt.create_controller_xml(contr_dict)
             vm_xml_obj.add_device(contr_obj)
             logging.debug("Add a controller: %s" % contr_obj)
 
         virsh.define(vm_xml_obj.xml, options=define_option, **virsh_options)
+        vm_xml = VMXML.new_from_dumpxml(vm_name)
+        ret_indexes = libvirt_pcicontr.get_max_contr_indexes(vm_xml,
+                                                             'pci',
+                                                             contr_model)
+        if not ret_indexes or len(ret_indexes) < 1:
+            test.error("Can't find the controller index for model "
+                       "'{}'".format(contr_model))
+        contr_index = ret_indexes[0]
+        if attach_extra and attach_extra.count('--address '):
+            attach_extra = attach_extra % ("%02x" % int(contr_index))
+        if err_msg and err_msg.count('%s'):
+            err_msg = err_msg % contr_index
+
         if not save_restore:
             disk_max = int(hotplug_counts) if hotplug_counts else 1
             for disk_inx in range(0, disk_max):
@@ -212,6 +190,8 @@ def run(test, params, env):
                 image_path_list.append(image_path)
                 libvirt.create_local_disk("file", image_path, '10M',
                                           disk_format='qcow2')
+
+        # Prepare vm xml for coldplug
         if not hotplug and not save_restore:
             # Do coldplug before hotunplug to prepare the interface device
             virsh.attach_disk(vm_name, image_path, target_dev,
@@ -248,7 +228,9 @@ def run(test, params, env):
                     ret = virsh.attach_disk(vm_name, image_path_list[attach_inx], disk_dev,
                                             extra=attach_extra,
                                             **virsh_options)
-                    if ret.exit_status:
+                    if not ret.exit_status:
+                        continue
+                    else:
                         break
                 libvirt.check_result(ret, expected_fails=err_msg)
         if not hotplug and check_within_guest:
