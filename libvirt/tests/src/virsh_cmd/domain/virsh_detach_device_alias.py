@@ -55,6 +55,7 @@ def run(test, params, env):
     # backup xml
     vmxml = vm_xml.VMXML.new_from_inactive_dumpxml(vm_name)
     backup_xml = vmxml.copy()
+    device_xml = None
 
     if not vm.is_alive():
         vm.start()
