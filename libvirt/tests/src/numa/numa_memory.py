@@ -145,32 +145,33 @@ def run(test, params, env):
             pass
 
     # Prepare libvirtd session with log level as 1
-    config_path = os.path.join(data_dir.get_tmp_dir(), "virt-test.conf")
-    open(config_path, 'a').close()
-    config = utils_config.LibvirtdConfig(config_path)
-    config.log_level = 1
-    arg_str = "--config %s" % config_path
-    numad_reg = ".*numad"
-    libvirtd = utils_libvirtd.LibvirtdSession(logging_handler=_logger,
-                                              logging_pattern=numad_reg)
-
+    # config_path = os.path.join(data_dir.get_tmp_dir(), "virt-test.conf")
+    # open(config_path, 'a').close()
+    # config = utils_config.LibvirtdConfig(config_path)
+    # config.log_level = 1
+    # arg_str = "--config %s" % config_path
+    #numad_reg = ".*numad"
+    #libvirtd = utils_libvirtd.LibvirtdSession(logging_handler=_logger,
+    #                                          logging_pattern=numad_reg)
+    libvirtd = utils_libvirtd.Libvirtd()
+    libvirtd.restart()
     try:
-        libvirtd.start(arg_str=arg_str)
+        #libvirtd.start(arg_str=arg_str)
         # As libvirtd start as session use root, need stop virtlogd service
         # and start it as daemon to fix selinux denial
-        try:
-            path.find_command('virtlogd')
-            process.run("service virtlogd stop", ignore_status=True)
-            process.run("virtlogd -d")
-        except path.CmdNotFoundError:
-            pass
+        # try:
+        #     path.find_command('virtlogd')
+        #     process.run("service virtlogd stop", ignore_status=True)
+        #     process.run("virtlogd -d")
+        # except path.CmdNotFoundError:
+        #     pass
 
         # Allow for more times to libvirtd restarted successfully.
-        ret = utils_misc.wait_for(lambda: libvirtd.is_working(),
-                                  timeout=240,
-                                  step=1)
-        if not ret:
-            test.fail("Libvirtd hang after restarted")
+        #ret = utils_misc.wait_for(lambda: libvirtd.is_working(),
+        #                          timeout=240,
+        #                          step=1)
+        #if not ret:
+        #    test.fail("Libvirtd hang after restarted")
 
         # Get host cpu list
         tmp_list = []
@@ -330,17 +331,17 @@ def run(test, params, env):
                 cpu_affinity_check(node=numad_node)
 
     finally:
-        try:
-            path.find_command('virtlogd')
-            process.run('pkill virtlogd', ignore_status=True)
-            process.run('systemctl restart virtlogd.socket', ignore_status=True)
-        except path.CmdNotFoundError:
-            pass
-        libvirtd.exit()
-        if config_path:
-            config.restore()
-            if os.path.exists(config_path):
-                os.remove(config_path)
+        # try:
+        #     path.find_command('virtlogd')
+        #     process.run('pkill virtlogd', ignore_status=True)
+        #     process.run('systemctl restart virtlogd.socket', ignore_status=True)
+        # except path.CmdNotFoundError:
+        #     pass
+        # libvirtd.exit()
+        # if config_path:
+        #     config.restore()
+        #     if os.path.exists(config_path):
+        #         os.remove(config_path)
         if vm.is_alive():
             vm.destroy(gracefully=False)
         backup_xml.sync()
