@@ -262,12 +262,10 @@ def execute_cmds(cmd, session, test, timeout=360, ignore_status=False):
     """
     status, output = session.cmd_status_output(cmd, timeout=timeout)
     if status:
-        msg = "Fail to execute %s with error %s,\
-               message: %s" % (cmd, status, output)
+        msg = "Fail to execute '%s' with error %s" % (cmd, status)
+        test.log.error("%s, message: %s" % (msg, output))
         if not ignore_status:
             test.fail(msg)
-        else:
-            test.log.error(msg)
     return output
 
 
